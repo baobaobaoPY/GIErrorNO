@@ -1,7 +1,7 @@
 # GIErrorNO
 ***
 ## 使用教程
-下载源码配置环境即可运行或在[此处](可以在此下载可执行文件！)前往下载程序本体  
+下载源码配置环境即可运行或在[此处](https://github.com/baobaobaoPY/GIErrorNO/releases/tag/V1.0)前往下载程序本体  
 下载后只需配置您的游戏路径并启动游戏即可！  
 ***
 ## [许可证](https://www.gnu.org/licenses/gpl-3.0.html)  
