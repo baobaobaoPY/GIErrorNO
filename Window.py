@@ -1,9 +1,9 @@
 import os
-import subprocess
 import sys
 import sqlite3
 import multiprocessing
 from datetime import datetime
+import pygame
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QLineEdit,
@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
                 padding: 8px 12px;
             }
         ''')
-        self.connect_duration_input.setValidator(QIntValidator(5, 120))
+        self.connect_duration_input.setValidator(QIntValidator(1, 120))
         self.save_connect_btn = QPushButton("保存值")
         self.save_connect_btn.setStyleSheet(button_style)
         self.save_connect_btn.clicked.connect(lambda: self.save_input_value(self.connect_duration_input, "connect_duration"))
@@ -386,8 +386,10 @@ class MainWindow(QMainWindow):
             "YuanShen.exe"
         )
         if file_path:
-            self.path_display.setText(file_path)
+            # 先尝试保存路径到数据库
             if self.db.save_path(file_path):
+                # 如果保存成功，再更新 UI
+                self.path_display.setText(file_path)
                 success_msg = QMessageBox(self)
                 success_msg.setWindowTitle("成功添加")
                 success_msg.setText("<font color='#28a745'>成功添加路径！</font>")
@@ -395,7 +397,13 @@ class MainWindow(QMainWindow):
                 success_msg.addButton("确定", QMessageBox.AcceptRole)
                 success_msg.exec()
             else:
-                print("\x1b[91m路径保存失败\x1b[0m")
+                # 如果保存失败，提示用户
+                error_msg = QMessageBox(self)
+                error_msg.setWindowTitle("添加失败")
+                error_msg.setText("<font color='#ff5f40'>添加路径失败，请重试！</font>")
+                error_msg.setIcon(QMessageBox.Warning)
+                error_msg.addButton("确定", QMessageBox.AcceptRole)
+                error_msg.exec()
 
     def show_error_message(self):
         error_msg = QMessageBox(self)
@@ -406,14 +414,22 @@ class MainWindow(QMainWindow):
         error_msg.exec()
 
     def start_surveillance(self):
+        from Utility import PathManager  # 导入 PathManager 类
+
         latest_path = self.db.get_latest_path()
         if not latest_path:
             self.show_error_message()
             return
 
+        try:
+            path_manager = PathManager()
+            path_manager.clean_persistent_log()
+        except Exception as e:
+            print(f"Error calling clean_persistent_log: {e}")
+
         ban_duration = self.get_input_value(self.ban_duration_input, 0, 300)
         intermittent = self.get_input_value(self.intermittent_input, 0, 30)
-        connect_duration = self.get_input_value(self.connect_duration_input, 5, 120)
+        connect_duration = self.get_input_value(self.connect_duration_input, 1, 120)
 
         if ban_duration is None or intermittent is None or connect_duration is None:
             error_msg = QMessageBox(self)
@@ -425,7 +441,8 @@ class MainWindow(QMainWindow):
             return
 
         # 启动子进程，注意这里传递的参数不能包含 GUI 对象
-        self.process = multiprocessing.Process(target=surveillance_worker, args=(latest_path, ban_duration, intermittent, connect_duration))
+        self.process = multiprocessing.Process(target=surveillance_worker,
+                                               args=(latest_path, ban_duration, intermittent, connect_duration))
         self.process.start()
 
     # 此方法来处理监控进程的退出并显示消息
@@ -445,12 +462,29 @@ class MainWindow(QMainWindow):
         if self.process and self.process.is_alive():
             self.process.terminate()
             self.process.join()
-            # 删除规则
+        # 播放关闭声音
+        try:
+            pygame.mixer.init()
+            pygame.mixer.music.load("ResourceFolders/mp3/Jssu.wav")
+            pygame.mixer.music.play()
+            # 等待音频播放完成
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(1)
+        except Exception as e:
+            pass
+            # 使用 FirewallRuleManager 删除规则
             try:
-                subprocess.run([sys.executable, 'SurveillanceON.py'], check=True)
+                from Surveillance import FirewallRuleManager
+                firewall_manager = FirewallRuleManager()
+                result = firewall_manager.delete_firewall_rule()
+                if result["success"]:
+                    print("防火墙规则已成功删除")
+                else:
+                    print(f"删除防火墙规则失败：{result['error']}")
             except Exception as e:
                 print(f"删除规则时出错: {e}")
-        event.accept()
+
+        event.accept()  # 结束进程
 
     def show_user_agreement(self):
         from PopUps import SplashDialog
@@ -466,10 +500,10 @@ class MainWindow(QMainWindow):
 
 def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_duration):
     import time
-    import subprocess
-    import sys
     import psutil
     from datetime import datetime
+    from Surveillance import FirewallRuleManager
+    from Tempkiller import clean_temp_files
 
     print("监控进程已启动...")
     start_time = datetime.now()
@@ -480,6 +514,8 @@ def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_durat
 
     # 检测程序是否启动
     target_proc = None
+    firewall_manager = FirewallRuleManager()  # 创建 FirewallRuleManager 实例
+
     while (datetime.now() - start_time).total_seconds() < max_wait_time:
         print("检查程序是否启动...")
 
@@ -508,35 +544,60 @@ def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_durat
 
     print("开始执行网络规则操作...")
     try:
+        cleanup_result = clean_temp_files()
+        if cleanup_result["success"]:
+            pass
+        else:
+            pass
         # 首次立即禁用网络
         print(f"\x1b[94m程序以启动，立即禁用网络 {ban_duration} 秒\x1b[0m")
-        subprocess.run([sys.executable, 'Surveillance.py'], check=True)
+        result = firewall_manager.create_firewall_rule()  # 创建防火墙规则
+        if result["success"]:
+            print(result["output"])
+        else:
+            print(f"创建防火墙规则失败：{result['error']}")
         time.sleep(ban_duration)
 
         while True:
             # 解禁网络
             print(f"\x1b[92m解除网络限制 {connect_duration} 秒\x1b[0m")
-            subprocess.run([sys.executable, 'SurveillanceON.py'], check=True)
+            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+            if result["success"]:
+                print(result["output"])
+            else:
+                print(f"删除防火墙规则失败：{result['error']}")
             time.sleep(connect_duration)
 
             # 再次禁用网络
             print(f"\x1b[91m限制程序网络 {intermittent} 秒\x1b[0m")
-            subprocess.run([sys.executable, 'Surveillance.py'], check=True)
+            result = firewall_manager.create_firewall_rule()  # 重新创建防火墙规则
+            if result["success"]:
+                print(result["output"])
+            else:
+                print(f"创建防火墙规则失败：{result['error']}")
             time.sleep(intermittent)
 
             # 检查目标进程是否仍在运行
             if not target_proc.is_running():
                 print("检测到目标进程已结束，准备退出监控...")
-                subprocess.run([sys.executable, 'SurveillanceON.py'], check=True)
+                result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+                if result["success"]:
+                    print(result["output"])
+                else:
+                    print(f"删除防火墙规则失败：{result['error']}")
                 break
 
     except KeyboardInterrupt:
         print("用户终止进程，正在清理...")
         try:
-            subprocess.run([sys.executable, 'SurveillanceON.py'], check=True)
+            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+            if result["success"]:
+                print(result["output"])
+            else:
+                print(f"删除防火墙规则失败：{result['error']}")
         except Exception as e:
             print(f"删除规则时出错: {e}")
-        print("规则已删除，监控进程结束。")
+        print("监控进程结束，您可以安全退出程序！")
 
 
 if __name__ == '__main__':

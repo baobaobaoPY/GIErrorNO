@@ -46,7 +46,6 @@ class FirewallRuleManager:
             ''')
             result = cursor.fetchone()
             if result:
-                # 将路径转换成 Windows 支持的格式
                 return result[0].replace('/', '\\')
             return None
         except sqlite3.Error as e:
@@ -59,13 +58,11 @@ class FirewallRuleManager:
         if not program_path:
             raise ValueError("未找到可执行文件路径！")
 
-        # 构造PowerShell命令，使用单引号来包围路径以避免转义问题
         ps_command = (
             f'New-NetFirewallRule -DisplayName "{rule_name}" -Direction Outbound '
             f'-Program "{program_path}" -Action Block'
         )
 
-        # 调用PowerShell执行命令
         try:
             result = subprocess.run(
                 ['powershell', '-Command', ps_command],
@@ -80,12 +77,29 @@ class FirewallRuleManager:
         except Exception as e:
             return {"success": False, "error": f"创建防火墙规则失败！错误信息：{str(e)}"}
 
-
-# 当这个模块被直接运行时，创建一个防火墙规则
-if __name__ == '__main__':
-    firewall_manager = FirewallRuleManager()
-    result = firewall_manager.create_firewall_rule()
-    if result["success"]:
-        print(result["output"])
-    else:
-        print("\x1b[91m错误:\x1b[0m", result["error"])
+    def delete_firewall_rule(self, rule_name="RawYuanShen"):
+        """删除特定的防火墙规则"""
+        check_command = f'Get-NetFirewallRule -DisplayName "{rule_name}" 2>&1 | Out-Null'
+        try:
+            subprocess.run(
+                ['powershell', '-Command', check_command],
+                check=True,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            delete_command = f'Remove-NetFirewallRule -DisplayName "{rule_name}"'
+            result = subprocess.run(
+                ['powershell', '-Command', delete_command],
+                check=True,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            return {"success": True, "output": result.stdout}
+        except subprocess.CalledProcessError as e:
+            if "not found" in e.stderr.lower():
+                return {"success": False, "error": f"未找到名为 {rule_name} 的防火墙规则！"}
+            return {"success": False, "error": f"删除失败或未存在相关规则"}
+        except Exception as e:
+            return {"success": False, "error": f"删除失败或未存在相关规则"}
