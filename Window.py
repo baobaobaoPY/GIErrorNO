@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
                 QApplication.setFont(app_font)
 
     def init_ui(self):
-        self.setWindowTitle('WindowsFirewall_Proxy V1.0.1')
+        self.setWindowTitle('WindowsFirewall_Proxy V1.0.3')
         self.resize(777, 200)
 
         main_widget = QWidget()
@@ -233,10 +233,10 @@ class MainWindow(QMainWindow):
         '''
 
         # 启动后禁网时间
-        ban_label = QLabel("在启动后禁网时间(秒):")
+        ban_label = QLabel("启动后延迟禁网时间(秒):")
         ban_label.setStyleSheet("QLabel { color: #444444; font-weight: normal; }")
         self.ban_duration_input = QLineEdit()
-        self.ban_duration_input.setPlaceholderText("输入原神启动后禁网时间：")
+        self.ban_duration_input.setPlaceholderText("输入原神启动后延迟禁网时间：")
         self.ban_duration_input.setStyleSheet('''
             QLineEdit {
                 background: #f8f9fa;
@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
                 padding: 8px 12px;
             }
         ''')
-        self.connect_duration_input.setValidator(QIntValidator(1, 120))
+        self.connect_duration_input.setValidator(QIntValidator(0, 120))
         self.save_connect_btn = QPushButton("保存值")
         self.save_connect_btn.setStyleSheet(button_style)
         self.save_connect_btn.clicked.connect(lambda: self.save_input_value(self.connect_duration_input, "connect_duration"))
@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
 
         ban_duration = self.get_input_value(self.ban_duration_input, 0, 300)
         intermittent = self.get_input_value(self.intermittent_input, 0, 30)
-        connect_duration = self.get_input_value(self.connect_duration_input, 1, 120)
+        connect_duration = self.get_input_value(self.connect_duration_input, 0, 120)
 
         if ban_duration is None or intermittent is None or connect_duration is None:
             error_msg = QMessageBox(self)
@@ -543,19 +543,14 @@ def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_durat
         return
 
     print("开始执行网络规则操作...")
-    try:
+    try:  # 清除不必要引起的报错因子
         cleanup_result = clean_temp_files()
         if cleanup_result["success"]:
             pass
         else:
             pass
-        # 首次立即禁用网络
-        print(f"\x1b[94m程序以启动，立即禁用网络 {ban_duration} 秒\x1b[0m")
-        result = firewall_manager.create_firewall_rule()  # 创建防火墙规则
-        if result["success"]:
-            print(result["output"])
-        else:
-            print(f"创建防火墙规则失败：{result['error']}")
+        # 开始延迟开启禁网模式
+        print(f"\x1b[94m程序以启动，开始延迟开启禁网 {ban_duration} 秒\x1b[0m")
         time.sleep(ban_duration)
 
         while True:
@@ -593,17 +588,22 @@ def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_durat
             result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
             if result["success"]:
                 print(result["output"])
+                sys.exit(0)
             else:
                 print(f"删除防火墙规则失败：{result['error']}")
+                sys.exit(-1)
         except Exception as e:
             print(f"删除规则时出错: {e}")
-        print("监控进程结束，您可以安全退出程序！")
+            sys.exit(-1)
 
 
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     window = MainWindow()
-    # 确保只有在用户协议通过后才显示主窗口
     if window.db.check_agreement_config():
         window.show()
     sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    main()
