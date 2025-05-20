@@ -1,7 +1,7 @@
 # GIErrorNO
 
 ## 使用教程
-下载源码配置环境即可运行或在[此处](https://github.com/baobaobaoPY/GIErrorNO/releases/tag/V1.0.4)前往下载程序本体  
+下载源码配置环境即可运行或在[此处](https://github.com/baobaobaoPY/GIErrorNO/releases)前往下载程序本体  
 下载后只需以管理员身份运行和配置您的游戏路径并启动游戏即可！  
 需自行配置延迟和爆破力度，或跟随教程视频指引设置
 
