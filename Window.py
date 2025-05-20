@@ -14,7 +14,7 @@ from PySide6.QtGui import QFont, QFontDatabase, QIntValidator
 
 
 class DatabaseWindow:
-    def __init__(self, db_name='WindowsFirewall_EZYES.db'):
+    def __init__(self, db_name='ResourceFolders/WindowsFirewall_EZYES.db'):
         self.conn = sqlite3.connect(db_name)
         self.create_table()
 
@@ -86,10 +86,22 @@ class DatabaseWindow:
     def save_path(self, path):
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT OR IGNORE INTO executable_paths (path, timestamp)
-                VALUES (?, ?)
-            ''', (path, datetime.now().isoformat()))
+            # 检查路径是否存在
+            cursor.execute('SELECT id FROM executable_paths WHERE path = ?', (path,))
+            existing = cursor.fetchone()
+            if existing:
+                # 更新现有记录的timestamp
+                cursor.execute('''
+                    UPDATE executable_paths
+                    SET timestamp = ?
+                    WHERE path = ?
+                ''', (datetime.now().isoformat(), path))
+            else:
+                # 插入新记录
+                cursor.execute('''
+                    INSERT INTO executable_paths (path, timestamp)
+                    VALUES (?, ?)
+                ''', (path, datetime.now().isoformat()))
             self.conn.commit()
             return True
         except sqlite3.Error as e:
@@ -151,7 +163,7 @@ class MainWindow(QMainWindow):
                 QApplication.setFont(app_font)
 
     def init_ui(self):
-        self.setWindowTitle('WindowsFirewall_Proxy V1.0.3')
+        self.setWindowTitle('WindowsFirewall_Proxy V1.0.4')
         self.resize(777, 200)
 
         main_widget = QWidget()
@@ -165,7 +177,7 @@ class MainWindow(QMainWindow):
 
         self.path_display = QLineEdit()
         self.path_display.setAlignment(Qt.AlignLeft)
-        self.path_display.setPlaceholderText("添加的YuanShen.exe路径将显示此处")
+        self.path_display.setPlaceholderText("添加的游戏路径将显示此处")
         self.path_display.setReadOnly(True)
         self.path_display.setStyleSheet('''
             QLineEdit {
@@ -229,8 +241,7 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover {
                 background: #218838;
-            }
-        '''
+            }'''
 
         # 启动后禁网时间
         ban_label = QLabel("启动后延迟禁网时间(秒):")
@@ -249,6 +260,7 @@ class MainWindow(QMainWindow):
         self.save_ban_btn = QPushButton("保存值")
         self.save_ban_btn.setStyleSheet(button_style)
         self.save_ban_btn.clicked.connect(lambda: self.save_input_value(self.ban_duration_input, "ban_duration"))
+        self.ban_duration_input.returnPressed.connect(self.save_ban_btn.click)
 
         # 中间歇式禁网时间
         intermittent_label = QLabel("游戏中间歇式禁网(秒):")
@@ -267,6 +279,7 @@ class MainWindow(QMainWindow):
         self.save_intermittent_btn = QPushButton("保存值")
         self.save_intermittent_btn.setStyleSheet(button_style)
         self.save_intermittent_btn.clicked.connect(lambda: self.save_input_value(self.intermittent_input, "intermittent"))
+        self.intermittent_input.returnPressed.connect(self.save_intermittent_btn.click)
 
         # 服务器可连接时间
         connect_label = QLabel("服务器可连接时间(秒):")
@@ -285,6 +298,7 @@ class MainWindow(QMainWindow):
         self.save_connect_btn = QPushButton("保存值")
         self.save_connect_btn.setStyleSheet(button_style)
         self.save_connect_btn.clicked.connect(lambda: self.save_input_value(self.connect_duration_input, "connect_duration"))
+        self.connect_duration_input.returnPressed.connect(self.save_connect_btn.click)  # 支持回车保存值
 
         # 使用 QHBoxLayout 来布局输入框和按钮
         ban_layout = QHBoxLayout()
@@ -381,9 +395,9 @@ class MainWindow(QMainWindow):
     def select_executable(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择YuanShen可执行文件",
+            "选择游戏可执行文件",
             "",
-            "YuanShen.exe"
+            "*YuanShen.exe *GenshinImpact.exe"
         )
         if file_path:
             # 先尝试保存路径到数据库
@@ -469,22 +483,20 @@ class MainWindow(QMainWindow):
             pygame.mixer.music.play()
             # 等待音频播放完成
             while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(1)
+                pygame.time.Clock().tick(0)
+            # 隐藏窗口
+            self.hide()
+            # 使用 FirewallRuleManager 删除规则
+            from Surveillance import FirewallRuleManager
+            firewall_manager = FirewallRuleManager()
+            result = firewall_manager.delete_firewall_rule()
+            if result["success"]:
+                print("防火墙规则已成功删除")
+            else:
+                print(f"删除防火墙规则失败或不存在相关规则")
         except Exception as e:
             pass
-            # 使用 FirewallRuleManager 删除规则
-            try:
-                from Surveillance import FirewallRuleManager
-                firewall_manager = FirewallRuleManager()
-                result = firewall_manager.delete_firewall_rule()
-                if result["success"]:
-                    print("防火墙规则已成功删除")
-                else:
-                    print(f"删除防火墙规则失败：{result['error']}")
-            except Exception as e:
-                print(f"删除规则时出错: {e}")
-
-        event.accept()  # 结束进程
+        sys.exit(0)
 
     def show_user_agreement(self):
         from PopUps import SplashDialog
@@ -583,7 +595,6 @@ def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_durat
                 break
 
     except KeyboardInterrupt:
-        print("用户终止进程，正在清理...")
         try:
             result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
             if result["success"]:

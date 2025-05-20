@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class FirewallRuleManager:
-    def __init__(self, db_name='WindowsFirewall_EZYES.db'):
+    def __init__(self, db_name='ResourceFolders/WindowsFirewall_EZYES.db'):
         self.db_name = db_name
         self.conn = sqlite3.connect(self.db_name)
         self.create_table()

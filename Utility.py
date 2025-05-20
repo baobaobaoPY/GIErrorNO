@@ -1,11 +1,9 @@
 import os
-import shutil
 import sqlite3
-from datetime import datetime
 
 
 class PathManager:
-    def __init__(self, db_name='WindowsFirewall_EZYES.db'):
+    def __init__(self, db_name='ResourceFolders/WindowsFirewall_EZYES.db'):
         self.db_name = db_name
         self.conn = sqlite3.connect(self.db_name)
 
