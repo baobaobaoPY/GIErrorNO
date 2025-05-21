@@ -8,6 +8,11 @@
 ## 喜欢！？
 如果您喜欢此产品并且它帮助到了您请一定一定要给个Star哟😘！  
 
+## 说明
+工具完全通过Windows特有的PowerShell命令行执行来实现的防火墙代理  
+不会出现防火墙恶意破坏，可以放心使用（但也需合理使用负责造成后果自负）  
+并且通过防火墙巧妙的实现断连网，完全不影响其他程序的网络连接问题。  
+
 ## [许可证](https://www.gnu.org/licenses/gpl-3.0.html)  
 ![GPLv-3.0](https://www.gnu.org/graphics/gplv3-or-later.png)  
 ***关于 GPLv3 许可证的其他事项说明请参阅项目根目录下的 `LICENSE` 文件！***  
