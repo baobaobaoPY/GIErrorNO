@@ -1,105 +1,106 @@
-import sqlite3
-import subprocess
-from datetime import datetime
+import os
+import sys
 
 
-class FirewallRuleManager:
-    def __init__(self, db_name='ResourceFolders/WindowsFirewall_EZYES.db'):
-        self.db_name = db_name
-        self.conn = sqlite3.connect(self.db_name)
-        self.create_table()
+def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_duration, firewall_tool):
+    import time
+    import psutil
+    from datetime import datetime
 
-    def create_table(self):
-        """创建存储可执行文件路径的数据库表"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS executable_paths (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT UNIQUE,
-                timestamp DATETIME
-            )
-        ''')
-        self.conn.commit()
+    print("监控进程已启动...")
+    start_time = datetime.now()
+    max_wait_time = 60  # 最大等待时间60秒
 
-    def save_path(self, path):
-        """保存可执行文件路径到数据库"""
+    # 根据用户选择导入不同模块
+    if firewall_tool == 'cmd_netsh':
+        from Cmd.CSurveillance import FirewallRuleManager
+        from Cmd.__init__ import clean_temp_files
+    else:
+        from PowerShell.Surveillance import FirewallRuleManager
+        from PowerShell.__init__ import clean_temp_files
+
+    # 预处理路径格式
+    target_path = os.path.normpath(yuanshen_path).lower()
+
+    # 检测程序是否启动
+    target_proc = None
+    firewall_manager = FirewallRuleManager()  # 创建 FirewallRuleManager 实例
+
+    while (datetime.now() - start_time).total_seconds() < max_wait_time:
+        print("检查程序是否启动...")
+
+        # 遍历所有进程
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                # 检查进程名称和路径
+                if proc.info['name'] in ['YuanShen.exe', 'GenshinImpact.exe']:
+                    proc_path = os.path.normpath(proc.info['exe']).lower()
+                    if proc_path == target_path:
+                        print(f"检测到目标进程启动：{proc_path}")
+                        target_proc = proc
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        else:
+            # 循环正常结束（未找到进程）
+            time.sleep(3)  # 每3秒检查一次
+            continue
+
+        # 找到匹配进程，跳出循环
+        break
+    else:
+        print("未能在指定时间内检测到游戏的启动，已结束监控。")
+        return
+
+    print("开始执行网络规则操作...")
+    try:  # 清除不必要引起的报错因子
+        cleanup_result = clean_temp_files()
+        if cleanup_result["success"]:
+            pass
+        else:
+            pass
+        # 开始延迟开启禁网模式
+        print(f"\x1b[94m程序以启动，开始延迟开启禁网 {ban_duration} 秒\x1b[0m")
+        time.sleep(ban_duration)
+
+        while True:
+            # 解禁网络
+            print(f"\x1b[92m解除网络限制 {connect_duration} 秒\x1b[0m")
+            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+            if result["success"]:
+                print(result["output"])
+            else:
+                print(f"删除防火墙规则失败或不存在相关规则")
+            time.sleep(connect_duration)
+
+            # 再次禁用网络
+            print(f"\x1b[91m限制程序网络 {intermittent} 秒\x1b[0m")
+            result = firewall_manager.create_firewall_rule()  # 重新创建防火墙规则
+            if result["success"]:
+                print(result["output"])
+            else:
+                print(f"创建防火墙规则失败：{result['error']}")
+            time.sleep(intermittent)
+
+            # 检查目标进程是否仍在运行
+            if not target_proc.is_running():
+                print("检测到目标进程已结束，准备退出监控...")
+                result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+                if result["success"]:
+                    print(result["output"])
+                else:
+                    print(f"删除防火墙规则失败或不存在相关规则")
+                break
+
+    except KeyboardInterrupt:
         try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT OR IGNORE INTO executable_paths (path, timestamp)
-                VALUES (?, ?)
-            ''', (path, datetime.now().isoformat()))
-            self.conn.commit()
-            return True
-        except sqlite3.Error as e:
-            print(f"Database error: {str(e)}")
-            return False
-
-    def get_latest_path(self):
-        """获取最近添加的可执行文件路径并处理为 Windows 支持的路径格式"""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT path FROM executable_paths 
-                ORDER BY timestamp DESC 
-                LIMIT 1
-            ''')
-            result = cursor.fetchone()
-            if result:
-                return result[0].replace('/', '\\')
-            return None
-        except sqlite3.Error as e:
-            print(f"数据库查询错误: {str(e)}")
-            return None
-
-    def create_firewall_rule(self, rule_name="RawYuanShen"):
-        """从数据库获取路径并创建防火墙规则"""
-        program_path = self.get_latest_path()
-        if not program_path:
-            raise ValueError("未找到可执行文件路径！")
-
-        ps_command = (
-            f'New-NetFirewallRule -DisplayName "{rule_name}" -Direction Outbound '
-            f'-Program "{program_path}" -Action Block'
-        )
-
-        try:
-            result = subprocess.run(
-                ['powershell', '-Command', ps_command],
-                check=True,
-                shell=True,
-                capture_output=True,
-                text=True
-            )
-            return {"success": True, "output": result.stdout}
-        except subprocess.CalledProcessError as e:
-            return {"success": False, "error": f"创建防火墙规则失败！错误信息：{e.stderr}"}
+            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
+            if result["success"]:
+                print(result["output"])
+                sys.exit(0)
+            else:
+                print(f"删除防火墙规则失败或不存在相关规则")
+                sys.exit(-1)
         except Exception as e:
-            return {"success": False, "error": f"创建防火墙规则失败！错误信息：{str(e)}"}
-
-    def delete_firewall_rule(self, rule_name="RawYuanShen"):
-        """删除特定的防火墙规则"""
-        check_command = f'Get-NetFirewallRule -DisplayName "{rule_name}" 2>&1 | Out-Null'
-        try:
-            subprocess.run(
-                ['powershell', '-Command', check_command],
-                check=True,
-                shell=True,
-                capture_output=True,
-                text=True
-            )
-            delete_command = f'Remove-NetFirewallRule -DisplayName "{rule_name}"'
-            result = subprocess.run(
-                ['powershell', '-Command', delete_command],
-                check=True,
-                shell=True,
-                capture_output=True,
-                text=True
-            )
-            return {"success": True, "output": result.stdout}
-        except subprocess.CalledProcessError as e:
-            if "not found" in e.stderr.lower():
-                return {"success": False, "error": f"未找到名为 {rule_name} 的防火墙规则！"}
-            return {"success": False, "error": f"删除失败或未存在相关规则"}
-        except Exception as e:
-            return {"success": False, "error": f"删除失败或未存在相关规则"}
+            print(f"删除规则时出错: {e}")
+            sys.exit(-1)

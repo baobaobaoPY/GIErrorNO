@@ -1,9 +1,7 @@
 import sys
-import time
 import pygame
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QPushButton, QApplication
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QFont
 
 
 class SplashDialog(QDialog):
@@ -66,9 +64,8 @@ class SplashDialog(QDialog):
 
         # 初始化音频播放
         pygame.mixer.init()
-        self.sound = pygame.mixer.Sound("ResourceFolders/mp3/(⊙_⊙).wav")
+        self.sound = pygame.mixer.Sound("./ResourceFolders/mp3/(⊙_⊙).wav")
         self.sound.play()
-
 
     def accept(self):
         super().accept()

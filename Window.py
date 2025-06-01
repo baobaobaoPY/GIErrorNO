@@ -1,131 +1,23 @@
 import os
 import sys
-import sqlite3
-import multiprocessing
-from datetime import datetime
 import pygame
+import multiprocessing
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QLineEdit,
-    QPushButton, QFileDialog, QMessageBox, QDialog, QFormLayout, QLabel
-)
+    QPushButton, QFileDialog, QMessageBox,
+    QDialog, QFormLayout, QLabel, QComboBox)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontDatabase, QIntValidator
-
-
-class DatabaseWindow:
-    def __init__(self, db_name='ResourceFolders/WindowsFirewall_EZYES.db'):
-        self.conn = sqlite3.connect(db_name)
-        self.create_table()
-
-    def create_table(self):
-        # 创建 config 表
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS config (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            ''')
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"创建 config 表时出错: {e}")
-
-        # 创建 executable_paths 表
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS executable_paths (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path TEXT UNIQUE,
-                    timestamp DATETIME
-                )
-            ''')
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"创建 executable_paths 表时出错: {e}")
-
-    def update_agreement_config(self, value):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO config (key, value)
-            VALUES ('agreement_config', ?)
-        ''', (value,))
-        self.conn.commit()
-
-    def check_agreement_config(self):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT value FROM config
-            WHERE key = 'agreement_config'
-        ''')
-        result = cursor.fetchone()
-        if result:
-            return result[0] == 'True'
-        else:
-            return False
-
-    def update_config_value(self, key, value):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO config (key, value)
-            VALUES (?, ?)
-        ''', (key, value))
-        self.conn.commit()
-
-    def get_config_value(self, key, default=None):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT value FROM config
-            WHERE key = ?
-        ''', (key,))
-        result = cursor.fetchone()
-        return result[0] if result else default
-
-    def save_path(self, path):
-        try:
-            cursor = self.conn.cursor()
-            # 检查路径是否存在
-            cursor.execute('SELECT id FROM executable_paths WHERE path = ?', (path,))
-            existing = cursor.fetchone()
-            if existing:
-                # 更新现有记录的timestamp
-                cursor.execute('''
-                    UPDATE executable_paths
-                    SET timestamp = ?
-                    WHERE path = ?
-                ''', (datetime.now().isoformat(), path))
-            else:
-                # 插入新记录
-                cursor.execute('''
-                    INSERT INTO executable_paths (path, timestamp)
-                    VALUES (?, ?)
-                ''', (path, datetime.now().isoformat()))
-            self.conn.commit()
-            return True
-        except sqlite3.Error as e:
-            print(f"保存路径时出错: {e}")
-            return False
-
-    def get_latest_path(self):
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT path FROM executable_paths 
-                ORDER BY timestamp DESC 
-                LIMIT 1
-            ''')
-            result = cursor.fetchone()
-            return result[0] if result else None
-        except sqlite3.Error as e:
-            print(f"获取路径时出错: {e}")
-            return None
+from PySide6.QtGui import QFont, QFontDatabase, QIntValidator, QIcon
+from database import DatabaseWindow
+from Surveillance import surveillance_worker
+from Dyeing import ColorSupport
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.color_support = ColorSupport()
         self.load_custom_font()
         self.db = DatabaseWindow()
         self.init_ui()
@@ -135,6 +27,7 @@ class MainWindow(QMainWindow):
         # 检查用户是否同意协议说明
         if not self.db.check_agreement_config():
             self.show_user_agreement()
+        self.setWindowIcon(QIcon('ResourceFolders/img/🚫GenshinImpact_YuanShen_miHoYo🚫.ico'))
 
     def center_window(self):
         screen = QApplication.primaryScreen()
@@ -145,15 +38,21 @@ class MainWindow(QMainWindow):
         self.move(x, y)
 
     def load_history(self):
+        # 加载原神路径
         latest_path = self.db.get_latest_path()
         if latest_path:
             self.path_display.setText(latest_path)
 
+        # 加载XXMI路径
+        latest_xxmi_path = self.db.get_latest_xxmi_path()
+        if latest_xxmi_path:
+            self.xxmi_path_display.setText(latest_xxmi_path)
+
     def load_custom_font(self):
-        font_file = "ResourceFolders/ttf_A/zh-cn.ttf"
+        font_file = "./ResourceFolders/ttf_A/zh-cn.ttf"
         font_id = QFontDatabase.addApplicationFont(font_file)
         if font_id == -1:
-            print("\x1b[91m加载字体失败，请检查字体文件路径是否正确\x1b[0m")
+            self.color_support.print("\x1b[91m加载字体失败，请检查字体文件路径是否正确\x1b[0m")
         else:
             font_families = QFontDatabase.applicationFontFamilies(font_id)
             if font_families:
@@ -163,8 +62,9 @@ class MainWindow(QMainWindow):
                 QApplication.setFont(app_font)
 
     def init_ui(self):
-        self.setWindowTitle('WindowsFirewall_Proxy V1.0.4')
-        self.resize(777, 200)
+        self.setWindowTitle('WindowsFirewall_Proxy V1.0.5.1')
+        self.resize(777, 240)
+        self.setFixedSize(self.width(), self.height())
 
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
@@ -177,7 +77,7 @@ class MainWindow(QMainWindow):
 
         self.path_display = QLineEdit()
         self.path_display.setAlignment(Qt.AlignLeft)
-        self.path_display.setPlaceholderText("添加的游戏路径将显示此处")
+        self.path_display.setPlaceholderText("请添加您的游戏路径信息")
         self.path_display.setReadOnly(True)
         self.path_display.setStyleSheet('''
             QLineEdit {
@@ -208,14 +108,14 @@ class MainWindow(QMainWindow):
         self.start_btn.setFixedWidth(66)
         self.start_btn.setStyleSheet('''
             QPushButton {
-                background: #9140ff;
+                background: #fd7e14;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
             }
             QPushButton:hover {
-                background: #7930e5;
+                background: #e06d0c;
             }
         ''')
         self.start_btn.clicked.connect(self.start_surveillance)
@@ -223,6 +123,64 @@ class MainWindow(QMainWindow):
         h_layout.addWidget(self.path_display)
         h_layout.addWidget(self.select_btn)
         h_layout.addWidget(self.start_btn)
+
+        # XXMI路径选择部分
+        xxmi_container = QWidget()
+        xxmi_layout = QHBoxLayout(xxmi_container)
+        xxmi_layout.setContentsMargins(0, 0, 0, 0)
+        xxmi_layout.setSpacing(8)
+
+        # XXMI路径显示
+        self.xxmi_path_display = QLineEdit()
+        self.xxmi_path_display.setAlignment(Qt.AlignLeft)
+        self.xxmi_path_display.setPlaceholderText("可选加XXMI路径信息，方便快速启动")
+        self.xxmi_path_display.setReadOnly(True)
+        self.xxmi_path_display.setStyleSheet('''
+            QLineEdit {
+                background: #f8f9fa;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+        ''')
+
+        # XXMI添加按钮
+        self.xxmi_select_btn = QPushButton("添加")
+        self.xxmi_select_btn.setFixedWidth(66)
+        self.xxmi_select_btn.setStyleSheet('''
+            QPushButton {
+                background: #177be5;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background: #146dcc;
+            }
+        ''')
+        self.xxmi_select_btn.clicked.connect(self.select_xxmi_executable)
+
+        # XXMI启动按钮
+        self.xxmi_start_btn = QPushButton("启动")
+        self.xxmi_start_btn.setFixedWidth(66)
+        self.xxmi_start_btn.setStyleSheet('''
+            QPushButton {
+                background: #fd7e14;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background: #e06d0c;
+            }
+        ''')
+        self.xxmi_start_btn.clicked.connect(self.start_xxmi)
+
+        xxmi_layout.addWidget(self.xxmi_path_display)
+        xxmi_layout.addWidget(self.xxmi_select_btn)
+        xxmi_layout.addWidget(self.xxmi_start_btn)
 
         input_container = QWidget()
         input_layout = QFormLayout(input_container)
@@ -278,7 +236,8 @@ class MainWindow(QMainWindow):
         self.intermittent_input.setValidator(QIntValidator(0, 30))
         self.save_intermittent_btn = QPushButton("保存值")
         self.save_intermittent_btn.setStyleSheet(button_style)
-        self.save_intermittent_btn.clicked.connect(lambda: self.save_input_value(self.intermittent_input, "intermittent"))
+        self.save_intermittent_btn.clicked.connect(
+            lambda: self.save_input_value(self.intermittent_input, "intermittent"))
         self.intermittent_input.returnPressed.connect(self.save_intermittent_btn.click)
 
         # 服务器可连接时间
@@ -297,7 +256,8 @@ class MainWindow(QMainWindow):
         self.connect_duration_input.setValidator(QIntValidator(0, 120))
         self.save_connect_btn = QPushButton("保存值")
         self.save_connect_btn.setStyleSheet(button_style)
-        self.save_connect_btn.clicked.connect(lambda: self.save_input_value(self.connect_duration_input, "connect_duration"))
+        self.save_connect_btn.clicked.connect(
+            lambda: self.save_input_value(self.connect_duration_input, "connect_duration"))
         self.connect_duration_input.returnPressed.connect(self.save_connect_btn.click)  # 支持回车保存值
 
         # 使用 QHBoxLayout 来布局输入框和按钮
@@ -319,12 +279,43 @@ class MainWindow(QMainWindow):
         connect_layout.addWidget(self.save_connect_btn)
         input_layout.addRow(connect_label, connect_layout)
 
+        # 添加防火墙工具选择
+        firewall_label = QLabel("选择Powershell或Cmd+Netsh进行：")
+        firewall_label.setStyleSheet("QLabel { color: #444444; font-weight: normal; }")
+
+        self.firewall_combo = QComboBox()
+        self.firewall_combo.addItems(["1. PowerShell", "2. Cmd+Netsh"])
+
+        # 设置默认值
+        saved_tool = self.db.get_firewall_tool()
+        if saved_tool == 'cmd_netsh':
+            self.firewall_combo.setCurrentIndex(1)
+        else:
+            self.firewall_combo.setCurrentIndex(0)
+
+        self.firewall_combo.currentIndexChanged.connect(self.on_firewall_tool_changed)
+
+        input_layout.addRow(firewall_label, self.firewall_combo)
+
+        # 添加容器控件到容器中
         main_layout.addWidget(h_container)
+        main_layout.addWidget(xxmi_container)
         main_layout.addWidget(input_container)
         self.setCentralWidget(main_widget)
 
         # 加载保存的值
         self.load_saved_values()
+
+    def on_firewall_tool_changed(self, index):
+        """当用户选择不同的防火墙工具时调用"""
+        if index == 0:  # PowerShell
+            tool_name = 'powershell'
+        else:  # Cmd+Netsh
+            tool_name = 'cmd_netsh'
+            from Cmd.CSurveillance import FirewallRuleManager
+
+        # 保存选择到数据库
+        self.db.save_firewall_tool(tool_name)
 
     def load_saved_values(self):
         ban_duration = self.db.get_config_value("ban_duration")
@@ -338,6 +329,70 @@ class MainWindow(QMainWindow):
         connect_duration = self.db.get_config_value("connect_duration")
         if connect_duration:
             self.connect_duration_input.setText(connect_duration)
+
+    def select_xxmi_executable(self):
+        """选择XXMI可执行文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择XXMI可执行文件",
+            "",
+            "*.exe"
+        )
+        if file_path and "XXMI Launcher.exe" in file_path:
+            # 保存路径到数据库
+            if self.db.save_xxmi_path(file_path):
+                # 更新UI
+                self.xxmi_path_display.setText(file_path)
+                success_msg = QMessageBox(self)
+                success_msg.setWindowTitle("成功添加")
+                success_msg.setText("<font color='#28a745'>成功添加XXMI路径！</font>")
+                success_msg.setIcon(QMessageBox.Information)
+                success_msg.addButton("确定", QMessageBox.AcceptRole)
+                success_msg.exec()
+            else:
+                # 保存失败提示
+                error_msg = QMessageBox(self)
+                error_msg.setWindowTitle("添加失败")
+                error_msg.setText("<font color='#ff5f40'>添加XXMI路径失败，请重试！</font>")
+                error_msg.setIcon(QMessageBox.Warning)
+                error_msg.addButton("确定", QMessageBox.AcceptRole)
+                error_msg.exec()
+
+    def show_xxmi_error_message(self):
+        """显示XXMI路径错误提示"""
+        error_msg = QMessageBox(self)
+        error_msg.setWindowTitle("错误")
+        error_msg.setText("<font color='#ff5f40'>未设置XXMI路径信息！</font>")
+        error_msg.setIcon(QMessageBox.Warning)
+        error_msg.addButton("确认", QMessageBox.AcceptRole)
+        error_msg.exec()
+
+    def start_xxmi(self):
+        """启动XXMI程序"""
+        latest_xxmi_path = self.db.get_latest_xxmi_path()
+        if not latest_xxmi_path:
+            self.show_xxmi_error_message()
+            return
+
+        try:
+            # 启动程序
+            os.startfile(latest_xxmi_path)
+
+            # 显示成功消息
+            success_msg = QMessageBox(self)
+            success_msg.setWindowTitle("启动成功")
+            success_msg.setText(f"<font color='#28a745'>已启动XXMI程序：<br>{os.path.basename(latest_xxmi_path)}</font>")
+            success_msg.setIcon(QMessageBox.Information)
+            success_msg.addButton("确定", QMessageBox.AcceptRole)
+            success_msg.exec()
+        except Exception as e:
+            # 启动失败提示
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("启动失败")
+            error_msg.setText(f"<font color='#ff5f40'>启动XXMI失败：{str(e)}</font>")
+            error_msg.setIcon(QMessageBox.Warning)
+            error_msg.addButton("确定", QMessageBox.AcceptRole)
+            error_msg.exec()
 
     def get_input_value(self, input_box, min_val, max_val):
         text = input_box.text().strip()
@@ -454,9 +509,14 @@ class MainWindow(QMainWindow):
             error_msg.exec()
             return
 
-        # 启动子进程，注意这里传递的参数不能包含 GUI 对象
-        self.process = multiprocessing.Process(target=surveillance_worker,
-                                               args=(latest_path, ban_duration, intermittent, connect_duration))
+        # 获取用户选择的防火墙工具
+        firewall_tool = self.db.get_firewall_tool()  # 返回 'powershell' 或 'cmd_netsh'
+
+        # 启动子进程，传递防火墙工具参数
+        self.process = multiprocessing.Process(
+            target=surveillance_worker,
+            args=(latest_path, ban_duration, intermittent, connect_duration, firewall_tool)
+        )
         self.process.start()
 
     # 此方法来处理监控进程的退出并显示消息
@@ -479,21 +539,30 @@ class MainWindow(QMainWindow):
         # 播放关闭声音
         try:
             pygame.mixer.init()
-            pygame.mixer.music.load("ResourceFolders/mp3/Jssu.wav")
+            pygame.mixer.music.load("./ResourceFolders/mp3/Jssu.wav")
             pygame.mixer.music.play()
             # 等待音频播放完成
             while pygame.mixer.music.get_busy():
                 pygame.time.Clock().tick(0)
             # 隐藏窗口
             self.hide()
-            # 使用 FirewallRuleManager 删除规则
-            from Surveillance import FirewallRuleManager
+            # 使用用户优先选择的方式删除规则
+            firewall_tool = self.db.get_firewall_tool()  # 返回 'powershell' 或 'cmd_netsh'
+
+            # 根据用户选择动态导入对应模块
+            if firewall_tool == 'cmd_netsh':
+                from Cmd.CSurveillance import FirewallRuleManager
+            else:
+                from PowerShell.Surveillance import FirewallRuleManager
+
+            # 创建实例并删除规则
             firewall_manager = FirewallRuleManager()
             result = firewall_manager.delete_firewall_rule()
             if result["success"]:
                 print("防火墙规则已成功删除")
             else:
                 print(f"删除防火墙规则失败或不存在相关规则")
+
         except Exception as e:
             pass
         sys.exit(0)
@@ -510,111 +579,9 @@ class MainWindow(QMainWindow):
             sys.exit(0)
 
 
-def surveillance_worker(yuanshen_path, ban_duration, intermittent, connect_duration):
-    import time
-    import psutil
-    from datetime import datetime
-    from Surveillance import FirewallRuleManager
-    from Tempkiller import clean_temp_files
-
-    print("监控进程已启动...")
-    start_time = datetime.now()
-    max_wait_time = 60  # 最大等待时间60秒
-
-    # 预处理路径格式
-    target_path = os.path.normpath(yuanshen_path).lower()
-
-    # 检测程序是否启动
-    target_proc = None
-    firewall_manager = FirewallRuleManager()  # 创建 FirewallRuleManager 实例
-
-    while (datetime.now() - start_time).total_seconds() < max_wait_time:
-        print("检查程序是否启动...")
-
-        # 遍历所有进程
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            try:
-                # 检查进程名称和路径
-                if proc.info['name'] == 'YuanShen.exe':
-                    proc_path = os.path.normpath(proc.info['exe']).lower()
-                    if proc_path == target_path:
-                        print(f"检测到目标进程启动：{proc_path}")
-                        target_proc = proc
-                        break
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        else:
-            # 循环正常结束（未找到进程）
-            time.sleep(3)  # 每3秒检查一次
-            continue
-
-        # 找到匹配进程，跳出循环
-        break
-    else:
-        print("未能在指定时间内检测到游戏的启动，已结束监控。")
-        return
-
-    print("开始执行网络规则操作...")
-    try:  # 清除不必要引起的报错因子
-        cleanup_result = clean_temp_files()
-        if cleanup_result["success"]:
-            pass
-        else:
-            pass
-        # 开始延迟开启禁网模式
-        print(f"\x1b[94m程序以启动，开始延迟开启禁网 {ban_duration} 秒\x1b[0m")
-        time.sleep(ban_duration)
-
-        while True:
-            # 解禁网络
-            print(f"\x1b[92m解除网络限制 {connect_duration} 秒\x1b[0m")
-            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
-            if result["success"]:
-                print(result["output"])
-            else:
-                print(f"删除防火墙规则失败：{result['error']}")
-            time.sleep(connect_duration)
-
-            # 再次禁用网络
-            print(f"\x1b[91m限制程序网络 {intermittent} 秒\x1b[0m")
-            result = firewall_manager.create_firewall_rule()  # 重新创建防火墙规则
-            if result["success"]:
-                print(result["output"])
-            else:
-                print(f"创建防火墙规则失败：{result['error']}")
-            time.sleep(intermittent)
-
-            # 检查目标进程是否仍在运行
-            if not target_proc.is_running():
-                print("检测到目标进程已结束，准备退出监控...")
-                result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
-                if result["success"]:
-                    print(result["output"])
-                else:
-                    print(f"删除防火墙规则失败：{result['error']}")
-                break
-
-    except KeyboardInterrupt:
-        try:
-            result = firewall_manager.delete_firewall_rule()  # 删除防火墙规则
-            if result["success"]:
-                print(result["output"])
-                sys.exit(0)
-            else:
-                print(f"删除防火墙规则失败：{result['error']}")
-                sys.exit(-1)
-        except Exception as e:
-            print(f"删除规则时出错: {e}")
-            sys.exit(-1)
-
-
-def main():
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
     if window.db.check_agreement_config():
         window.show()
     sys.exit(app.exec())
-
-
-if __name__ == '__main__':
-    main()
