@@ -14,7 +14,7 @@
 ## 紧急提醒！
 在2025/6/20开始开始出现部分设备游玩原神模组报错，但是大部分在XXMI加上启动代码也解决了，小部分还需而外方式解决报错。  
 `-platform_type CLOUD_THIRD_PARTY_PC`复制左侧代码输入到您的XXMI启动项中即可！  
-()![https://ac-o.namu.la/20250517sac/6a90835a9b244eedb95ee394873b20af4f619e56cc9b7fcf6410cee54059c79e.png?expires=1750386402&key=OQ3Fs4_Gc2CEF7-ndSPjtQ&type=orig]
+![](https://ac-o.namu.la/20250517sac/6a90835a9b244eedb95ee394873b20af4f619e56cc9b7fcf6410cee54059c79e.png?expires=1750386402&key=OQ3Fs4_Gc2CEF7-ndSPjtQ&type=orig)
 
 ## 喜欢！？
 如果您喜欢此产品并且它帮助到了您请一定一定要给个Star哟😘！  
